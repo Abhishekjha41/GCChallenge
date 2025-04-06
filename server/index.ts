@@ -79,16 +79,7 @@ const initializeApp = async () => {
 
     // Only start the HTTP server if not running in a serverless environment.
     // Vercel sets process.env.VERCEL, so skip listening in production.
-    if (!process.env.VERCEL) {
-      const port = 5000;
-      const host = "localhost";
-      server.listen(port, host, () => {
-        log(`Server running at http://${host}:${port}`);
-      });
-    }
-  } catch (error) {
-    console.error("Server failed to start:", error);
-  }
+    
 };
 
 // Initialize the application.
