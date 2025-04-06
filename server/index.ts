@@ -23,14 +23,11 @@ app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  // Bind the original res.json to preserve context
   const originalResJson = res.json.bind(res);
   res.json = function (bodyJson, ...args) {
     capturedJsonResponse = bodyJson;
     return originalResJson(bodyJson, ...args);
   };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
@@ -47,15 +44,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Asynchronous initialization to register routes, middleware, and static assets
-const initializeApp = async () => {
+// Create an initialization promise to ensure that all async setup completes before handling any request.
+let isInitialized = false;
+const initializationPromise = (async () => {
   try {
-    // Register API routes
     console.log("Before registering routes");
     await registerRoutes(app);
     console.log("After registering routes");
 
-    // Log the registered routes (for debugging purposes)
+    // Optionally, log the registered routes for debugging.
     const registeredRoutes = app._router.stack
       .filter((layer: any) => layer.route)
       .map((layer: any) => layer.route.path);
@@ -71,10 +68,10 @@ const initializeApp = async () => {
 
     // In development, set up Vite; in production, serve static files.
     if (app.get("env") === "development") {
-      // When running locally, create an HTTP server and set up Vite middleware.
+      // If running locally, create an HTTP server and set up Vite middleware.
       const server = createServer(app);
       await setupVite(app, server);
-      // Only start the HTTP server if not running in a serverless environment.
+      // If not on Vercel, start listening.
       if (!process.env.VERCEL) {
         const port = 5000;
         const host = "localhost";
@@ -85,14 +82,28 @@ const initializeApp = async () => {
     } else {
       serveStatic(app);
     }
+
+    isInitialized = true;
+    console.log("Initialization complete");
   } catch (error) {
-    console.error("Server failed to start:", error);
+    console.error("Initialization failed:", error);
+    // Rethrow so that waiting middleware can catch it.
+    throw error;
   }
-};
+})();
 
-// Initialize the app immediately
-initializeApp();
+// Middleware that waits for the initialization promise to resolve before handling any request.
+app.use(async (req: Request, res: Response, next: NextFunction) => {
+  if (!isInitialized) {
+    try {
+      await initializationPromise;
+    } catch (error) {
+      return next(error);
+    }
+  }
+  next();
+});
 
-// For Vercel deployments, export a serverless handler.
-// When process.env.VERCEL is defined, Vercel will use this handler rather than starting its own HTTP server.
+// For Vercel deployments, export the serverless handler.
+// Vercel will use this exported function to handle requests.
 export default process.env.VERCEL ? serverless(app) : app;
