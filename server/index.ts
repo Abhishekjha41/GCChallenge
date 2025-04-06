@@ -2,8 +2,8 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import serverless from "serverless-http";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { registerRoutes } from "./routes.js"; // Note the .js extension
+import { setupVite, serveStatic, log } from "./vite.js"; // Also update if needed
 
 const app = express();
 
@@ -44,15 +44,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Create an initialization promise to ensure that all async setup completes before handling any request.
-let isInitialized = false;
-const initializationPromise = (async () => {
+// Asynchronous initialization to register routes, middleware, and static assets
+const initializeApp = async () => {
   try {
     console.log("Before registering routes");
     await registerRoutes(app);
     console.log("After registering routes");
 
-    // Optionally, log the registered routes for debugging.
+    // Log the registered routes (for debugging purposes)
     const registeredRoutes = app._router.stack
       .filter((layer: any) => layer.route)
       .map((layer: any) => layer.route.path);
@@ -66,12 +65,9 @@ const initializationPromise = (async () => {
       log(`Error: ${message} (status: ${status})`);
     });
 
-    // In development, set up Vite; in production, serve static files.
     if (app.get("env") === "development") {
-      // If running locally, create an HTTP server and set up Vite middleware.
       const server = createServer(app);
       await setupVite(app, server);
-      // If not on Vercel, start listening.
       if (!process.env.VERCEL) {
         const port = 5000;
         const host = "localhost";
@@ -82,28 +78,12 @@ const initializationPromise = (async () => {
     } else {
       serveStatic(app);
     }
-
-    isInitialized = true;
-    console.log("Initialization complete");
   } catch (error) {
-    console.error("Initialization failed:", error);
-    // Rethrow so that waiting middleware can catch it.
-    throw error;
+    console.error("Server failed to start:", error);
   }
-})();
+};
 
-// Middleware that waits for the initialization promise to resolve before handling any request.
-app.use(async (req: Request, res: Response, next: NextFunction) => {
-  if (!isInitialized) {
-    try {
-      await initializationPromise;
-    } catch (error) {
-      return next(error);
-    }
-  }
-  next();
-});
+initializeApp();
 
 // For Vercel deployments, export the serverless handler.
-// Vercel will use this exported function to handle requests.
 export default process.env.VERCEL ? serverless(app) : app;
