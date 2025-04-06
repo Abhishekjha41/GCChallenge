@@ -1,6 +1,7 @@
 // server/index.ts
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
+import serverless from "serverless-http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -46,6 +47,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// Asynchronous initialization to register routes, middleware, and static assets
 const initializeApp = async () => {
   try {
     // Register API routes
@@ -67,31 +69,30 @@ const initializeApp = async () => {
       log(`Error: ${message} (status: ${status})`);
     });
 
-    // Create HTTP server from Express app
-    const server = createServer(app);
-
     // In development, set up Vite; in production, serve static files.
     if (app.get("env") === "development") {
+      // When running locally, create an HTTP server and set up Vite middleware.
+      const server = createServer(app);
       await setupVite(app, server);
+      // Only start the HTTP server if not running in a serverless environment.
+      if (!process.env.VERCEL) {
+        const port = 5000;
+        const host = "localhost";
+        server.listen(port, host, () => {
+          log(`Server running at http://${host}:${port}`);
+        });
+      }
     } else {
       serveStatic(app);
-    }
-
-    // Only start the HTTP server if not running in a serverless environment.
-    // Vercel sets process.env.VERCEL, so skip listening in production.
-    if (!process.env.VERCEL) {
-      const port = 5000;
-      const host = "localhost";
-      server.listen(port, host, () => {
-        log(`Server running at http://${host}:${port}`);
-      });
     }
   } catch (error) {
     console.error("Server failed to start:", error);
   }
 };
 
-// Initialize the application.
+// Initialize the app immediately
 initializeApp();
 
-export default app;
+// For Vercel deployments, export a serverless handler.
+// When process.env.VERCEL is defined, Vercel will use this handler rather than starting its own HTTP server.
+export default process.env.VERCEL ? serverless(app) : app;
